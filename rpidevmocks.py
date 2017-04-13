@@ -57,6 +57,14 @@ class MockSMBus(object):
     gyro_z = 0x47
     temp = 0x41
 
+    pimoroni_pantilt_hat = 0x15
+    piconzero = 0x22
+    piconzero_commands = [0x00, 0x01, 0x02, 0x03, 0x08, 0x09, 0x14]
+    ads1015_address = 0x48
+
+
+    valid_addresses = [mpu_adr, lcd_adr, pwr_mgt_1, accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z, temp, pimoroni_pantilt_hat, ads1015_address, piconzero]
+    valid_commands = [0] + piconzero_commands
     def __init__(self, bus_no):
         self.bus_no = bus_no
 
@@ -64,7 +72,7 @@ class MockSMBus(object):
         return "<Mock: smbus.SMBus>"
 
     def write_byte(self, addr, cmd):
-        if addr not in (self.mpu_adr, self.lcd_adr):
+        if addr not in (self.valid_addresses):
             errmsg = 'Address argument not valid: %s' % hex(addr)
             raise ValueError(errmsg)
         return None
@@ -72,18 +80,29 @@ class MockSMBus(object):
     def write_byte_data(self, addr, cmd, zero=0):
         ''' orig: sensor.Sensor.initialize() '''
         # res = bus.write_byte_data(0x68, 0x6b, 0)  # res = None
-        if addr not in (self.mpu_adr, self.lcd_adr):
+        if addr not in self.valid_addresses:
             errmsg = 'Address argument not valid: %s' % hex(addr)
             raise ValueError(errmsg)
         ## This is specific to MPU
-        if cmd not in (self.mpu_adr, self.lcd_adr, self.pwr_mgt_1, self.accel_x, self.accel_y,
-                    self.accel_z, self.gyro_x, self.gyro_y, self.gyro_z, self.temp):
+        if cmd not in self.valid_commands:
             raise ValueError('Command invalid: %s' % hex(cmd))
+        return None
+
+    def write_word_data(self, addr, cmd, val): # real signature unknown; restored from __doc__
+        if addr not in self.valid_addresses:
+            errmsg = 'Address argument not valid: %s' % hex(addr)
+            raise ValueError(errmsg)
         return None
 
     def write_block_data(self, addr, cmd, data):
         # I don't think this is actually used, just available in lcd_device.py
-        if addr not in (self.mpu_adr, self.lcd_adr):
+        if addr not in self.valid_addresses:
+            errmsg = 'Address argument not valid: %s' % hex(addr)
+            raise ValueError(errmsg)
+        return None
+
+    def write_i2c_block_data(self, addr, cmd, vals=None): # real signature unknown; restored from __doc__
+        if addr not in self.valid_addresses:
             errmsg = 'Address argument not valid: %s' % hex(addr)
             raise ValueError(errmsg)
         return None
@@ -101,7 +120,7 @@ class MockSMBus(object):
                     self.temp : 240, self.temp+1 : 16,
                     self.lcd_adr : 0
                     }
-        if addr not in (self.mpu_adr, self.lcd_adr):
+        if addr not in self.valid_addressesr:
             errmsg = 'Address argument not valid: %s' % hex(addr)
             raise ValueError(errmsg)
         ## This is specific to MPU
@@ -116,19 +135,23 @@ class MockSMBus(object):
 
     def read_byte(self, addr):
         # I don't think this is actually used, just available in lcd_device.py
-        if addr not in (self.mpu_adr, self.lcd_adr):
+        if addr not in self.valid_addresses:
             errmsg = 'Address argument not valid: %s' % hex(addr)
             raise ValueError(errmsg)
         return None
 
     def read_block_data(self, addr, cmd):
         # I don't think this is actually used, just available in lcd_device.py
-        if addr not in (self.mpu_adr, self.lcd_adr):
+        if addr not in self.valid_addresses:
             errmsg = 'Address argument not valid: %s' % hex(addr)
             raise ValueError(errmsg)
         return None
 
-
+    def read_i2c_block_data(self, addr, cmd, len=32): # real signature unknown; restored from __doc__
+        if addr not in self.valid_addresses:
+            errmsg = 'Address argument not valid: %s' % hex(addr)
+            raise ValueError(errmsg)
+        return [0] * len
 
 class Mock_smbusModule(object):
     ''' Mock of smbus module, containing SMBus class '''
@@ -178,87 +201,94 @@ class MockGPIO(object):
     def __repr__(self):
         return "<Mock: RPi.GPIO>"
 
-    def setmode(self, mode):
+    @staticmethod
+    def setmode(mode):
         # mode should be GPIO.BCM or GPIO.BOARD
-        if mode not in (self.BCM, self.BOARD):
+        if mode not in (MockGPIO.BCM, MockGPIO.BOARD):
             raise ValueError('An invalid mode was passed to setmode()')
-        self.setmode_run = True
-        self.mode = mode
+        MockGPIO.setmode_run = True
+        MockGPIO.mode = mode
         # Returns nothing
         pass
 
-    def getmode(self):
+    @staticmethod
+    def getmode():
         # Should return BCM, BOARD, or UNKNOWN
-        return self.mode
+        return MockGPIO.mode
 
-    def _pin_validate(self, channel):
+    @staticmethod
+    def _pin_validate(channel):
         ''' For test/mock purposes, to centralize validation checks of pin numbers & values '''
-        if channel not in self.bcm_board_map.keys():
+        if channel not in MockGPIO.bcm_board_map.keys():
             raise ValueError('Channel is invalid on a Raspberry Pi: %s' % str(channel))
 
-    def cleanup(self, channels=None):
+    @staticmethod
+    def cleanup(channels=None):
         # Resets all to INPUT with no pullup/pulldown and no event detection
         if channels is None:
-            channels = self.bcm_board_map.keys()
+            channels = MockGPIO.bcm_board_map.keys()
         elif not hasattr(channels, '__iter__'):
             channels = [channels,]
         for pin in channels:
-            self.gpio_setting[pin] = 1
-        self.mode = -1
-        self.setmode_run = False
+            MockGPIO.gpio_setting[pin] = 1
+        MockGPIO.mode = -1
+        MockGPIO.setmode_run = False
 
-    def setup(self, channels, direction, pull_up_down=None, initial=None):
+    @staticmethod
+    def setup(channels, direction, pull_up_down=None, initial=None):
         if not hasattr(channels, '__iter__'):
             channels = [channels, ]
         for channel in channels:
-            self._pin_validate(channel)
+            MockGPIO._pin_validate(channel)
 
-        if direction not in (self.IN, self.OUT):
+        if direction not in (MockGPIO.IN, MockGPIO.OUT):
             raise ValueError('An invalid direction was passed to setup()')
         if (pull_up_down is not None and
-            pull_up_down not in (self.PUD_OFF, self.PUD_UP, self.PUD_DOWN) ):
+            pull_up_down not in (MockGPIO.PUD_OFF, MockGPIO.PUD_UP, MockGPIO.PUD_DOWN) ):
             raise ValueError('pull_up_down not in pre-defined PUD_OFF/UP/DOWN values')
-        self.setup_run = True  # really should do this on a per-channel basis
-        self.gpio_setting[channel] = direction
+        MockGPIO.setup_run = True  # really should do this on a per-channel basis
+        MockGPIO.gpio_setting[channel] = direction
         # Returns nothing
         pass
 
-    def output(self, channel, value):
+    @staticmethod
+    def output(channel, value):
         if not hasattr(channels, '__iter__'):
             channels = [channels, ]
         for channel in channels:
-            self._pin_validate(channel)
+            MockGPIO._pin_validate(channel)
 
-        if value not in (self.LOW, self.HIGH):
+        if value not in (MockGPIO.LOW, MockGPIO.HIGH):
             raise ValueError('An invalid value was passed to output()')
-        if not self.setmode_run:
+        if not MockGPIO.setmode_run:
             raise RuntimeError('Please set pin numbering mode using GPIO.setmode(GPIO.BOARD) or GPIO.setmode(GPIO.BCM)')
-        if not self.setup_run:
+        if not MockGPIO.setup_run:
             raise RuntimeError('The GPIO channel has not been set up as an OUTPUT')
         # Returns nothing
         pass
 
-    def input(self, channels):
+    @staticmethod
+    def input(channels):
         if not hasattr(channels, '__iter__'):
             channels = [channels, ]
         for channel in channels:
-            self._pin_validate(channel)
+            MockGPIO._pin_validate(channel)
 
-        if not self.setmode_run:
+        if not MockGPIO.setmode_run:
             raise RuntimeError('Please set pin numbering mode using GPIO.setmode(GPIO.BOARD) or GPIO.setmode(GPIO.BCM)')
-        if not self.setup_run:
+        if not MockGPIO.setup_run:
             raise RuntimeError('You must setup() the GPIO channel first')
         # Returns either 0 or 1.
         ### This may need to be customized depending on its intended use, perhaps
         #   by using mock to specify the desired return value in tests. For me
         #   leaving it to return 1 works fine.
-        return self.HIGH
+        return MockGPIO.HIGH
 
     def gpio_function(self, channel):
         self._pin_validate(channel)
         if not self.setmode_run:
             raise RuntimeError('Please set pin numbering mode using GPIO.setmode(GPIO.BOARD) or GPIO.setmode(GPIO.BCM)')
-        return  self.gpio_setting[channel]
+        return  MockGPIO.gpio_setting[channel]
 
 
     ## Following functions are placeholders that need filled it.
@@ -279,6 +309,19 @@ class MockGPIO(object):
 
     def remove_event_detect(self, *args):
         pass
+
+    class PWMMock:
+        def start(self, freq):
+            pass
+        def stop(self):
+            pass
+        def ChangeDutyCycle(self, duty_cycle):
+            pass
+        def ChangeFrequency(self, freq):
+            pass
+    @staticmethod
+    def PWM(pin, freq):
+        return MockGPIO.PWMMock()
 
 
 class MockSPI(object):
